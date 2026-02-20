@@ -1,0 +1,1 @@
+"""Core geometry generation functionality."""

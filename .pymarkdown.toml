@@ -1,0 +1,38 @@
+# PyMarkdown configuration
+# https://github.com/jackdewinter/pymarkdown
+
+[tool.pymarkdown]
+# Enable strict mode for better consistency
+strict = false
+
+[tool.pymarkdown.extensions]
+# Enable front-matter extension for markdown files with YAML headers
+front-matter.enabled = true
+
+[tool.pymarkdown.plugins]
+# MD003 - Heading style (use ATX style: # Heading)
+md003.style = "atx"
+
+# MD004 - Unordered list style (use dashes)
+md004.style = "dash"
+
+# MD007 - Unordered list indentation (2 spaces)
+md007.indent = 2
+
+# MD013 - Line length (disable - we allow long lines for readability)
+md013.enabled = false
+
+# MD024 - Multiple headings with same content (allow in different sections)
+md024.siblings_only = true
+
+# MD033 - Inline HTML (allow some HTML for flexibility)
+md033.enabled = false
+
+# MD041 - First line should be top-level heading
+md041.enabled = true
+
+# MD046 - Code block style (fenced)
+md046.style = "fenced"
+
+# MD048 - Code fence style (backtick)
+md048.style = "backtick"

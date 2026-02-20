@@ -1,0 +1,137 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "geoforge"
+version = "0.1.0"
+description = "Natural language semiconductor geometry generator using GDSFactory"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "anthropic>=0.40.0",
+    "gdsfactory>=9.32.1",
+    "google-genai>=1.60.0",
+    "gradio>=6.5.0",
+    "pytz>=2024.1",
+    "matplotlib>=3.10.8",
+    "ollama>=0.6.1",
+    "openai>=1.50.0",
+    "pydantic>=2.12.5",
+    "pydantic-settings>=2.12.0",
+    "rich>=14.3.1",
+    "typer>=0.21.1",
+]
+
+[dependency-groups]
+dev = [
+    "bandit[toml]>=1.8.2",
+    "codespell>=2.4.1",
+    "pre-commit>=4.5.1",
+    "pymarkdownlnt>=0.9.25",
+    "pytest>=9.0.2",
+    "pytest-asyncio>=0.23.0",
+    "pytest-cov>=6.1.0",
+    "pytest-timeout>=2.2.0",
+    "ruff>=0.14.14",
+    "ty>=0.0.14",
+]
+
+[project.scripts]
+geoforge = "geoforge.cli:app"
+
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+src = ["src"]
+
+[tool.ruff.lint]
+select = [
+    "E",      # pycodestyle errors
+    "F",      # pyflakes
+    "I",      # isort
+    "UP",     # pyupgrade
+    "B",      # flake8-bugbear
+    "SIM",    # flake8-simplify
+    "PTH",    # flake8-use-pathlib
+    "C4",     # flake8-comprehensions
+    "DTZ",    # flake8-datetimez
+    "T10",    # flake8-debugger
+    "EXE",    # flake8-executable
+    "ISC",    # flake8-implicit-str-concat
+    "ICN",    # flake8-import-conventions
+    "PIE",    # flake8-pie
+    "Q",      # flake8-quotes
+    "RSE",    # flake8-raise
+    "RET",    # flake8-return
+    "SLOT",   # flake8-slots
+    "TID",    # flake8-tidy-imports
+    "TCH",    # flake8-type-checking
+    "ARG",    # flake8-unused-arguments
+    "PGH",    # pygrep-hooks
+    "PL",     # pylint
+    "TRY",    # tryceratops
+    "FLY",    # flynt
+    "PERF",   # perflint
+    "FURB",   # refurb
+    "RUF",    # ruff-specific rules
+]
+ignore = [
+    "E501",     # line too long (handled by formatter)
+    "PLR0913",  # too many arguments
+    "PLR2004",  # magic value comparison
+    "PLR0912",  # too many branches (CLI commands are complex)
+    "PLR0915",  # too many statements (CLI commands are complex)
+    "TRY003",   # long exception messages
+    "TRY300",   # return in try block (overly pedantic)
+    "TRY301",   # raise in try block (valid for retry logic)
+    "PLC0415",  # import not at top level (lazy imports are intentional)
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["geoforge"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = [
+    "ARG001",   # unused function argument (fixtures)
+    "ARG002",   # unused method argument (mock provider overrides)
+    "PLR2004",  # magic values in tests are fine
+]
+
+[tool.ty.environment]
+python-version = "3.13"
+
+[tool.bandit]
+exclude_dirs = ["tests", ".venv", "examples"]
+skips = [
+    "B101",  # assert used (fine in non-production code)
+    "B102",  # exec used (intentional for code execution)
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+asyncio_mode = "auto"
+addopts = [
+    "-ra",
+    "--strict-markers",
+    "--strict-config",
+]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests",
+]
+
+[tool.coverage.run]
+source = ["src/geoforge"]
+branch = true
+omit = ["*/tests/*", "*/__pycache__/*"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+]

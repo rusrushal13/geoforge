@@ -1,0 +1,59 @@
+repos:
+  # Standard pre-commit hooks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+        args: [--markdown-linebreak-ext=md]
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-added-large-files
+        args: ['--maxkb=1000']
+      - id: check-merge-conflict
+      - id: detect-private-key
+      - id: check-case-conflict
+      - id: mixed-line-ending
+        args: ['--fix=lf']
+
+  # Ruff - fast Python linter and formatter
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.2
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  # Bandit - security linter for Python
+  - repo: https://github.com/PyCQA/bandit
+    rev: 1.9.3
+    hooks:
+      - id: bandit
+        args: ['-c', 'pyproject.toml', '-r', 'src/']
+        additional_dependencies: ['bandit[toml]']
+
+  # Codespell - spell checker
+  - repo: https://github.com/codespell-project/codespell
+    rev: v2.4.1
+    hooks:
+      - id: codespell
+        args: ['--skip', '*.gds,*.oas,*.lock,*.svg', '--ignore-words-list', 'nd,te']
+
+  # Local hooks
+  - repo: local
+    hooks:
+      # ty - static type checker
+      - id: ty
+        name: ty (type checker)
+        entry: uv run ty check src/
+        language: system
+        types: [python]
+        pass_filenames: false
+        always_run: true
+
+      # pymarkdown - markdown linter
+      - id: pymarkdown
+        name: pymarkdown (markdown linter)
+        entry: uv run pymarkdown --config .pymarkdown.toml scan
+        language: system
+        types: [markdown]
