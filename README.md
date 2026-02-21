@@ -16,6 +16,8 @@ Spec Extraction --> Code Generation --> Validation --> Export
 Output: via_array_2026-01-29_095030.py / .gds / .oas / .png
 ```
 
+![Via Array Preview](assets/via_array_5x5.png)
+
 ## Features
 
 - **Natural Language Input** - Describe geometries in plain English
@@ -243,6 +245,8 @@ EOF
 geoforge generate "$PROMPT" --provider gemini --output Squares_rectangles_300_1 --preview --debug
 ```
 
+![300-layer stress test](assets/Squares_rectangles_300_1.png)
+
 ### Example B: Curved parallel bundle (arc fanout)
 
 Use this for curved routing bundles similar to RF/interconnect bends:
@@ -259,6 +263,8 @@ Add end caps on both sides.
 Export both curved_trace_bundle.gds and curved_trace_bundle.oas." \
   --provider gemini --output curved_trace_bundle --preview --debug
 ```
+
+![Curved trace bundle](assets/curved_trace_bundle.png)
 
 ### Example C: Comb/serpentine fanout with center pad
 
@@ -277,6 +283,8 @@ Prefer gf.path.euler for smooth curves.
 Export comb_serpentine.gds and comb_serpentine.oas." \
   --provider gemini --output comb_serpentine --preview --debug
 ```
+
+![Comb serpentine fanout](assets/comb_serpentine.png)
 
 ## Guided Prompt Builder (Question-First)
 
