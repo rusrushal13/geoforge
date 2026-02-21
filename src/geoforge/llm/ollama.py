@@ -9,12 +9,18 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 from geoforge.config import settings
 from geoforge.llm.base import (
     GEOMETRY_SPEC_SCHEMA,
+    PROMPT_ENHANCEMENT_SCHEMA,
     GeometrySpec,
     LLMProvider,
     RetryContext,
+    _format_prompt_enhancement_retry_message,
     _format_retry_message,
 )
-from geoforge.prompts.gdsfactory import GEOMETRY_SPEC_PROMPT, build_code_prompt
+from geoforge.prompts.gdsfactory import (
+    GEOMETRY_SPEC_PROMPT,
+    PROMPT_ENHANCER_PROMPT,
+    build_code_prompt,
+)
 
 console = Console()
 
@@ -108,6 +114,42 @@ class OllamaProvider(LLMProvider):
         except Exception:
             return []
 
+    async def _enhance_prompt_impl(
+        self,
+        prompt: str,
+        retry_context: RetryContext | None = None,
+    ) -> dict:
+        """Rewrite raw user prompt into explicit geometry constraints."""
+        system_prompt = PROMPT_ENHANCER_PROMPT + PROMPT_ENHANCEMENT_SCHEMA
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": prompt},
+        ]
+
+        if retry_context:
+            if retry_context.previous_response_snippet:
+                messages.append(
+                    {"role": "assistant", "content": retry_context.previous_response_snippet}
+                )
+            messages.append(
+                {
+                    "role": "user",
+                    "content": _format_prompt_enhancement_retry_message(retry_context),
+                }
+            )
+
+        response = await self.client.chat(
+            model=self.model,
+            messages=messages,
+            format="json",
+            options={
+                "temperature": settings.llm_temperature,
+                "seed": settings.llm_seed,
+            },
+        )
+
+        return json.loads(response["message"]["content"])
+
     async def _generate_geometry_spec_impl(
         self,
         prompt: str,
@@ -155,6 +197,7 @@ class OllamaProvider(LLMProvider):
                 "parameters": spec.parameters,
                 "layers": [layer.model_dump() for layer in spec.layers],
                 "geometry_ranges": [r.model_dump() for r in spec.geometry_ranges],
+                "primitives": [p.model_dump() for p in spec.primitives],
             },
             original_prompt=original_prompt,
         )

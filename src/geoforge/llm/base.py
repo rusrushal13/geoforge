@@ -3,7 +3,7 @@
 import asyncio
 import json
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 if TYPE_CHECKING:
     from geoforge.core.logging import PipelineLogger
@@ -64,6 +64,43 @@ class GeometryRange(BaseModel):
         return self
 
 
+PrimitiveKind = Literal["rectangle", "circle", "polygon"]
+
+
+class PrimitiveSpec(BaseModel):
+    """Explicit primitive instruction used for custom logos and art-like geometry."""
+
+    primitive_type: PrimitiveKind = Field(
+        description="Primitive type: rectangle, circle, or polygon"
+    )
+    layer_number: int = Field(ge=1, description="GDS layer number for this primitive")
+    datatype: int = Field(default=0, ge=0, description="GDS datatype for this primitive")
+    center_x: float = Field(default=0.0, description="Primitive center X coordinate (um)")
+    center_y: float = Field(default=0.0, description="Primitive center Y coordinate (um)")
+    width: float | None = Field(default=None, gt=0, description="Width (um) for rectangles")
+    height: float | None = Field(default=None, gt=0, description="Height (um) for rectangles")
+    radius: float | None = Field(default=None, gt=0, description="Radius (um) for circles")
+    points: list[tuple[float, float]] = Field(
+        default_factory=list,
+        description="Polygon points as [x, y] coordinate pairs in um",
+    )
+    rotation_deg: float = Field(default=0.0, description="Rotation angle in degrees")
+    name: str | None = Field(default=None, description="Optional primitive label")
+
+    @model_validator(mode="after")
+    def _validate_shape_fields(self) -> "PrimitiveSpec":
+        """Ensure required per-shape fields are present."""
+        if self.primitive_type == "rectangle":
+            if self.width is None or self.height is None:
+                raise ValueError("Rectangle primitive requires both width and height")
+        elif self.primitive_type == "circle":
+            if self.radius is None:
+                raise ValueError("Circle primitive requires radius")
+        elif self.primitive_type == "polygon" and len(self.points) < 3:
+            raise ValueError("Polygon primitive requires at least 3 points")
+        return self
+
+
 class GeometrySpec(BaseModel):
     """Structured specification for geometry generation."""
 
@@ -76,6 +113,13 @@ class GeometrySpec(BaseModel):
     geometry_ranges: list[GeometryRange] = Field(
         default_factory=list,
         description="Per-range geometry specs for multi-layer components (optional)",
+    )
+    primitives: list[PrimitiveSpec] = Field(
+        default_factory=list,
+        description=(
+            "Optional explicit primitives with coordinates for custom logos and "
+            "art-like geometry requests"
+        ),
     )
     gdsfactory_code: str | None = Field(
         default=None, description="Generated GDSFactory Python code"
@@ -100,6 +144,16 @@ class RetryContext(BaseModel):
     previous_error: str
     previous_response_snippet: str | None = None
     error_category: ErrorCategory = "other"
+
+
+class PromptEnhancement(BaseModel):
+    """Normalized prompt text produced by the prompt-enhancer stage."""
+
+    rewritten_prompt: str = Field(min_length=1, description="Constraint-focused rewritten prompt")
+    key_constraints: list[str] = Field(
+        default_factory=list,
+        description="Most important geometry constraints extracted from the user intent",
+    )
 
 
 # Common schema prompt for all providers
@@ -130,6 +184,21 @@ IMPORTANT: Respond ONLY with valid JSON matching this EXACT schema:
             "center_x": 0.0,
             "center_y": 0.0
         }
+    ],
+    "primitives": [
+        {
+            "primitive_type": "polygon",
+            "layer_number": 1,
+            "datatype": 0,
+            "center_x": 0.0,
+            "center_y": 0.0,
+            "width": null,
+            "height": null,
+            "radius": null,
+            "points": [[-20.0, -10.0], [0.0, 30.0], [20.0, -10.0]],
+            "rotation_deg": 0.0,
+            "name": "outline"
+        }
     ]
 }
 
@@ -143,6 +212,29 @@ CRITICAL RULES:
 - Each range uses linear interpolation from width_start/height_start at start_layer
   to width_end/height_end at end_layer.
 - For squares, set width_start == height_start and width_end == height_end.
+- primitives is OPTIONAL — use it for custom logos, silhouettes, symbols, and when
+  the user asks for explicit shape-level control.
+- primitive_type can be rectangle, circle, or polygon.
+- rectangle requires width and height. circle requires radius.
+- polygon requires at least 3 points in [[x, y], ...] format (all in um).
+- Keep primitive layer_number/datatype consistent with the layers list.
+"""
+
+
+PROMPT_ENHANCEMENT_SCHEMA = """
+IMPORTANT: Respond ONLY with valid JSON matching this EXACT schema:
+{
+    "rewritten_prompt": "string with explicit geometry constraints, units, and layer intent",
+    "key_constraints": [
+        "short bullet-like constraint strings"
+    ]
+}
+
+CRITICAL RULES:
+- rewritten_prompt MUST preserve user intent and required dimensions.
+- Keep all geometry units in um unless explicitly requested otherwise.
+- Do not remove constraints like centering, layer count, or export requirements.
+- key_constraints should be concise and concrete (3-8 items preferred).
 """
 
 
@@ -200,6 +292,25 @@ def _format_retry_message(retry_context: RetryContext) -> str:
     return msg
 
 
+def _format_prompt_enhancement_retry_message(retry_context: RetryContext) -> str:
+    """Format retry feedback specifically for prompt-enhancement failures."""
+    msg = (
+        f"Your previous prompt-enhancement response (attempt {retry_context.attempt_number}) "
+        "had an error.\n"
+        f"Error type: {retry_context.error_category}\n"
+        f"Error details: {retry_context.previous_error}\n"
+    )
+    if retry_context.previous_response_snippet:
+        msg += (
+            f"\nYour previous response started with:\n{retry_context.previous_response_snippet}\n"
+        )
+    msg += (
+        "\nReturn ONLY valid JSON with rewritten_prompt and key_constraints."
+        "\nKeep the same user intent and constraints."
+    )
+    return msg
+
+
 class LLMProvider(ABC):
     """Abstract base class for all LLM providers.
 
@@ -243,6 +354,77 @@ class LLMProvider(ABC):
         Returns:
             Raw code string from LLM (will be validated by base class).
         """
+
+    async def _enhance_prompt_impl(
+        self,
+        prompt: str,
+        retry_context: RetryContext | None = None,  # noqa: ARG002
+    ) -> dict:
+        """Implementation hook for prompt-enhancement.
+
+        Providers can override this to call their native model API. The default
+        implementation is a no-op passthrough that preserves existing behavior.
+        """
+        return {"rewritten_prompt": prompt, "key_constraints": []}
+
+    async def enhance_prompt(self, prompt: str) -> PromptEnhancement:
+        """Rewrite user text into a constraint-focused geometry prompt.
+
+        This stage is fail-open: if enhancement repeatedly fails, the original
+        prompt is returned so the pipeline can still proceed.
+        """
+        last_error = None
+        retry_context: RetryContext | None = None
+        last_raw_response: str | None = None
+
+        for attempt in range(self.max_retries):
+            try:
+                data = await self._enhance_prompt_impl(prompt, retry_context)
+
+                if isinstance(data, str):
+                    last_raw_response = data
+                    stripped = data.strip()
+                    data = (
+                        json.loads(stripped)
+                        if stripped.startswith("{")
+                        else {"rewritten_prompt": stripped, "key_constraints": []}
+                    )
+                else:
+                    last_raw_response = json.dumps(data)
+
+                if not isinstance(data, dict):
+                    raise TypeError("Prompt enhancement response must be a JSON object")
+
+                enhancement = PromptEnhancement(**cast("dict[str, Any]", data))
+                if not enhancement.rewritten_prompt.strip():
+                    raise ValueError("rewritten_prompt is empty")
+                return enhancement
+
+            except Exception as e:
+                last_error = str(e)
+                retry_context = RetryContext(
+                    attempt_number=attempt + 1,
+                    previous_error=last_error,
+                    previous_response_snippet=last_raw_response[:500]
+                    if last_raw_response
+                    else None,
+                    error_category=_classify_error(e, last_raw_response),
+                )
+                console.print(
+                    f"[yellow]Attempt {attempt + 1}/{self.max_retries}: "
+                    "Prompt enhancement issue, retrying...[/yellow]"
+                )
+
+            if attempt < self.max_retries - 1:
+                await asyncio.sleep(min(2**attempt, 8))
+
+        console.print(
+            "[yellow]Prompt enhancement failed after retries; "
+            "continuing with original prompt.[/yellow]"
+        )
+        if last_error:
+            console.print(f"[dim]Enhancement error: {last_error}[/dim]")
+        return PromptEnhancement(rewritten_prompt=prompt, key_constraints=[])
 
     async def generate_geometry_spec(self, prompt: str) -> GeometrySpec:
         """Convert natural language prompt to structured geometry specification.
@@ -437,12 +619,22 @@ class LLMProvider(ABC):
         Returns:
             GeometrySpec with gdsfactory_code populated.
         """
+        enhancement = await self.enhance_prompt(prompt)
+        enhanced_prompt = enhancement.rewritten_prompt.strip()
+        if enhanced_prompt and enhanced_prompt != prompt.strip():
+            console.print("[dim]Prompt enhanced for better geometry extraction.[/dim]")
+
         if logger:
             logger.start("spec_generation")
         try:
-            spec = await self.generate_geometry_spec(prompt)
+            spec = await self.generate_geometry_spec(enhanced_prompt or prompt)
             if logger:
-                logger.success("spec_generation", component_type=spec.component_type)
+                logger.success(
+                    "spec_generation",
+                    component_type=spec.component_type,
+                    prompt_enhanced=bool(enhanced_prompt and enhanced_prompt != prompt.strip()),
+                    enhancement_constraints=enhancement.key_constraints,
+                )
         except Exception as e:
             if logger:
                 logger.log_error("spec_generation", str(e))

@@ -7,6 +7,19 @@ from typing import Any
 # Stage 1: Geometry specification extraction prompt
 # ---------------------------------------------------------------------------
 
+PROMPT_ENHANCER_PROMPT = """You are a precision prompt enhancer for semiconductor geometry generation.
+Rewrite the user request so it is explicit, constraint-focused, and easy for a downstream
+JSON spec extractor to parse.
+
+Enhancement goals:
+1) Preserve the exact design intent.
+2) Make dimensions, units, centering, layer constraints, and export requirements explicit.
+3) For custom art/logo/mascot requests, request explicit primitive geometry (rectangles,
+   circles, polygons with point lists) rather than vague descriptors.
+4) Keep output concise and implementation-ready.
+"""
+
+
 GEOMETRY_SPEC_PROMPT = """You are a semiconductor geometry specification expert. Your task is to \
 convert natural language descriptions of semiconductor structures into structured specifications.
 
@@ -65,6 +78,8 @@ via_pitch (2-10 um)
     - Parameters: size, spacing, pattern_type (rectangle/cross/circle/comb/serpentine/curved_bundle)
     - Use this for custom pattern requests like "comb serpentine", "fanout comb", or
       "curved trace bundle" when no dedicated component type matches
+    - For custom logos/mascots/symbols, keep component_type=test_pattern and prefer explicit
+      primitives (especially polygons) in the `primitives` field.
 
 11. differential_pair: Two parallel traces with guard ground
     - Layers: metal1, via1, metal2 (minimum 2)
@@ -315,6 +330,17 @@ and offset rectangles",
         }
     ]
 }
+
+=== CUSTOM ART / LOGO EXTRACTION ===
+When the user asks for a logo, meme, mascot, icon, or silhouette:
+- Use component_type "test_pattern" unless another catalog type clearly fits better.
+- Keep layers minimal (usually one layer unless user asks for multiple).
+- Populate `primitives` with explicit drawing instructions:
+  - rectangle: width, height, center_x, center_y
+  - circle: radius, center_x, center_y
+  - polygon: points as [[x, y], ...] with at least 3 points
+- Use enough primitives to capture recognizable shape features.
+- Keep all coordinates and dimensions in um.
 
 IMPORTANT: GDS/OASIS files are 2D formats. Layers are tags on polygons, not physical 3D layers.
 The thickness/material info is metadata - the actual file stores 2D shapes with layer numbers.
@@ -1074,10 +1100,12 @@ Component Type: {component_type}
 Description: {description}
 Parameters: {parameters}
 Layers: {layers}
-{geometry_ranges_section}{original_prompt_section}
+{geometry_ranges_section}{primitives_section}{original_prompt_section}
 
 CRITICAL: GDS is a 2D format. Create DIFFERENT shapes on DIFFERENT layers for true multi-layer \
 geometry. Do NOT just put the same rectangle on every layer - that's unrealistic.
+If a Primitive List is provided, treat it as authoritative shape data.
+Implement every primitive with the specified coordinates, layer, and dimensions.
 
 === VERIFIED WORKING EXAMPLE FOR {component_type} ===
 The following code is verified to work correctly. Use it as a reference for style and API usage:
@@ -1152,6 +1180,7 @@ Your code MUST:
 5. Use the EXACT parameter values from the specification
 6. Include if __name__ == "__main__" block
 7. Call BOTH write_gds() and write() for GDS and OAS export
+8. If Primitive List exists, implement each primitive faithfully (including polygon points)
 
 Generate complete, runnable Python code:"""
 
@@ -1282,6 +1311,7 @@ def build_code_prompt(
     description = spec_dict.get("description", "")
     parameters = spec_dict.get("parameters", {})
     layers = spec_dict.get("layers", [])
+    primitives = spec_dict.get("primitives", [])
 
     # Select the best matching example
     example = COMPONENT_EXAMPLES.get(component_type)
@@ -1314,6 +1344,11 @@ def build_code_prompt(
     if geometry_ranges:
         geometry_ranges_section = f"Geometry Ranges: {json.dumps(geometry_ranges, indent=2)}\n"
 
+    # Build primitives section (optional)
+    primitives_section = ""
+    if primitives:
+        primitives_section = f"Primitive List: {json.dumps(primitives, indent=2)}\n"
+
     # Build the original prompt section
     original_prompt_section = ""
     if original_prompt:
@@ -1325,6 +1360,7 @@ def build_code_prompt(
         parameters=json.dumps(parameters, indent=2) if isinstance(parameters, dict) else parameters,
         layers=json.dumps(layers, indent=2) if isinstance(layers, list) else layers,
         geometry_ranges_section=geometry_ranges_section,
+        primitives_section=primitives_section,
         original_prompt_section=original_prompt_section,
         component_example=example,
         common_mistakes=COMMON_MISTAKES,

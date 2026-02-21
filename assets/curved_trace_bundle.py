@@ -4,6 +4,7 @@ gf.gpdk.PDK.activate()
 
 LAYER = (1, 0)
 
+
 @gf.cell
 def curved_trace_bundle() -> gf.Component:
     """Parallel curved trace bundle with concentric bends."""
@@ -22,7 +23,9 @@ def curved_trace_bundle() -> gf.Component:
 
     # Left bus bar
     bus = gf.components.rectangle(
-        size=(trace_width * 2, bundle_height), layer=LAYER, centered=True,
+        size=(trace_width * 2, bundle_height),
+        layer=LAYER,
+        centered=True,
     )
     c.add_ref(bus)
 
@@ -40,6 +43,7 @@ def curved_trace_bundle() -> gf.Component:
         ref.dmove((trace_width, y_offset))
 
     return c
+
 
 if __name__ == "__main__":
     c = curved_trace_bundle()

@@ -8,12 +8,18 @@ from openai import AsyncOpenAI
 from geoforge.config import settings
 from geoforge.llm.base import (
     GEOMETRY_SPEC_SCHEMA,
+    PROMPT_ENHANCEMENT_SCHEMA,
     GeometrySpec,
     LLMProvider,
     RetryContext,
+    _format_prompt_enhancement_retry_message,
     _format_retry_message,
 )
-from geoforge.prompts.gdsfactory import GEOMETRY_SPEC_PROMPT, build_code_prompt
+from geoforge.prompts.gdsfactory import (
+    GEOMETRY_SPEC_PROMPT,
+    PROMPT_ENHANCER_PROMPT,
+    build_code_prompt,
+)
 
 
 class OpenAIProvider(LLMProvider):
@@ -35,6 +41,44 @@ class OpenAIProvider(LLMProvider):
             raise ValueError("OpenAI API key not configured. Set OPENAI_API_KEY in .env")
 
         self.client = AsyncOpenAI(api_key=self.api_key)
+
+    async def _enhance_prompt_impl(
+        self,
+        prompt: str,
+        retry_context: RetryContext | None = None,
+    ) -> dict:
+        """Rewrite raw user prompt into explicit geometry constraints."""
+        system_prompt = PROMPT_ENHANCER_PROMPT + PROMPT_ENHANCEMENT_SCHEMA
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": prompt},
+        ]
+
+        if retry_context:
+            if retry_context.previous_response_snippet:
+                messages.append(
+                    {"role": "assistant", "content": retry_context.previous_response_snippet}
+                )
+            messages.append(
+                {
+                    "role": "user",
+                    "content": _format_prompt_enhancement_retry_message(retry_context),
+                }
+            )
+
+        response = await self.client.chat.completions.create(
+            model=self.model,
+            messages=cast("Any", messages),
+            response_format={"type": "json_object"},
+            temperature=settings.llm_temperature,
+            seed=settings.llm_seed,
+        )
+
+        content = response.choices[0].message.content
+        if not content:
+            raise ValueError("OpenAI returned empty response for prompt enhancement")
+
+        return json.loads(content)
 
     async def _generate_geometry_spec_impl(
         self,
@@ -85,6 +129,7 @@ class OpenAIProvider(LLMProvider):
                 "parameters": spec.parameters,
                 "layers": [layer.model_dump() for layer in spec.layers],
                 "geometry_ranges": [r.model_dump() for r in spec.geometry_ranges],
+                "primitives": [p.model_dump() for p in spec.primitives],
             },
             original_prompt=original_prompt,
         )

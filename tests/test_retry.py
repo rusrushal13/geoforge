@@ -2,7 +2,13 @@
 
 import pytest
 
-from geoforge.llm.base import RetryContext, _classify_error, _format_retry_message
+from geoforge.llm.base import (
+    GeometrySpec,
+    LLMProvider,
+    RetryContext,
+    _classify_error,
+    _format_retry_message,
+)
 
 
 class TestRetryContext:
@@ -138,7 +144,6 @@ class TestRetryBehavior:
     @pytest.mark.asyncio
     async def test_code_gen_retry(self):
         """Code generation should retry on failure."""
-        from geoforge.llm.base import GeometrySpec
         from tests.mock_provider import MockLLMProvider
 
         provider = MockLLMProvider(fail_count=1)
@@ -149,3 +154,47 @@ class TestRetryBehavior:
         code = await provider.generate_gdsfactory_code(spec)
         assert "gdsfactory" in code or "gf" in code
         assert provider._code_calls == 2
+
+
+class _PromptSuccessProvider(LLMProvider):
+    async def _generate_geometry_spec_impl(self, prompt: str, retry_context=None) -> dict:
+        return {
+            "component_type": "test_pattern",
+            "description": "test",
+            "parameters": {},
+            "layers": [],
+        }
+
+    async def _generate_gdsfactory_code_impl(
+        self, spec: GeometrySpec, original_prompt=None, retry_context=None
+    ) -> str:
+        return (
+            "import gdsfactory as gf\nc = gf.Component('x')\nc.write_gds('x.gds')\nc.write('x.oas')"
+        )
+
+    async def _enhance_prompt_impl(self, prompt: str, retry_context=None) -> dict:
+        return {
+            "rewritten_prompt": f"Enhanced: {prompt}",
+            "key_constraints": ["single layer", "centered at origin"],
+        }
+
+
+class _PromptFailureProvider(_PromptSuccessProvider):
+    async def _enhance_prompt_impl(self, prompt: str, retry_context=None) -> dict:
+        raise ValueError("enhancement failed")
+
+
+@pytest.mark.asyncio
+async def test_prompt_enhancement_success():
+    provider = _PromptSuccessProvider()
+    result = await provider.enhance_prompt("draw a logo")
+    assert result.rewritten_prompt.startswith("Enhanced:")
+    assert "centered at origin" in result.key_constraints
+
+
+@pytest.mark.asyncio
+async def test_prompt_enhancement_fallback_to_original():
+    provider = _PromptFailureProvider()
+    provider.max_retries = 1
+    result = await provider.enhance_prompt("keep original text")
+    assert result.rewritten_prompt == "keep original text"

@@ -132,6 +132,23 @@ def format_spec_markdown(spec: GeometrySpec) -> str:
                 detail += f", center ({r.center_x}, {r.center_y})"
             lines.append(f"- {detail}")
 
+    if spec.primitives:
+        lines.append("\n### Primitives")
+        for p in spec.primitives:
+            detail = (
+                f"{p.primitive_type} on ({p.layer_number}, {p.datatype}) "
+                f"at ({p.center_x}, {p.center_y})"
+            )
+            if p.primitive_type == "rectangle":
+                detail += f", size {p.width} x {p.height} um"
+            elif p.primitive_type == "circle":
+                detail += f", radius {p.radius} um"
+            elif p.primitive_type == "polygon":
+                detail += f", {len(p.points)} points"
+            if p.rotation_deg:
+                detail += f", rotation {p.rotation_deg} deg"
+            lines.append(f"- {detail}")
+
     return "\n".join(lines)
 
 

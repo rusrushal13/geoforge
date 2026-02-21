@@ -6,6 +6,7 @@ from geoforge.prompts.gdsfactory import (
     GDSFACTORY_CODE_PROMPT,
     GDSFACTORY_CODE_PROMPT_TEMPLATE,
     GEOMETRY_SPEC_PROMPT,
+    PROMPT_ENHANCER_PROMPT,
     build_code_prompt,
 )
 
@@ -15,5 +16,6 @@ __all__ = [
     "GDSFACTORY_CODE_PROMPT",
     "GDSFACTORY_CODE_PROMPT_TEMPLATE",
     "GEOMETRY_SPEC_PROMPT",
+    "PROMPT_ENHANCER_PROMPT",
     "build_code_prompt",
 ]

@@ -8,6 +8,7 @@ METAL1 = (1, 0)
 VIA1 = (2, 0)
 METAL2 = (3, 0)
 
+
 @gf.cell
 def single_via(metal_size: float = 0.6, via_size: float = 0.2) -> gf.Component:
     """
@@ -33,13 +34,10 @@ def single_via(metal_size: float = 0.6, via_size: float = 0.2) -> gf.Component:
 
     return c
 
+
 @gf.cell
 def via_array(
-    rows: int = 5,
-    cols: int = 5,
-    pitch: float = 1.0,
-    metal_size: float = 0.6,
-    via_size: float = 0.2
+    rows: int = 5, cols: int = 5, pitch: float = 1.0, metal_size: float = 0.6, via_size: float = 0.2
 ) -> gf.Component:
     """
     Creates an array of via stacks connecting metal1 to metal2.
@@ -68,15 +66,10 @@ def via_array(
 
     return c
 
+
 if __name__ == "__main__":
     # Create the via_array component with specified parameters
-    c = via_array(
-        rows=5,
-        cols=5,
-        pitch=1.0,
-        metal_size=0.6,
-        via_size=0.2
-    )
+    c = via_array(rows=5, cols=5, pitch=1.0, metal_size=0.6, via_size=0.2)
 
     # Export the component to GDS and OAS files
     c.write_gds("via_array.gds")

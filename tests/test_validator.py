@@ -9,6 +9,7 @@ from geoforge.core.validator import (
     ValidationResult,
     generate_output_name,
     validate_execution,
+    validate_generated_code,
     validate_safety,
     validate_syntax,
 )
@@ -425,6 +426,126 @@ class TestValidationResult:
         assert result.is_valid is True
 
 
+class TestValidateGeneratedCode:
+    """Tests for full pipeline validation helper."""
+
+    def test_returns_error_when_code_missing(self):
+        from geoforge.llm.base import GeometrySpec
+
+        spec = GeometrySpec(component_type="via_array", description="missing code")
+        result = validate_generated_code(spec)
+        assert result.is_valid is False
+        assert result.errors == ["No code generated"]
+
+    def test_stops_on_syntax_error(self, monkeypatch):
+        import geoforge.core.validator as validator_module
+        from geoforge.llm.base import GeometrySpec
+
+        spec = GeometrySpec(
+            component_type="via_array",
+            description="syntax fail",
+            gdsfactory_code="not python",
+        )
+        monkeypatch.setattr(
+            validator_module, "validate_syntax", lambda _code: (False, "bad syntax")
+        )
+        monkeypatch.setattr(
+            validator_module,
+            "validate_safety",
+            lambda _code: (_ for _ in ()).throw(AssertionError("safety should not run")),
+        )
+
+        result = validator_module.validate_generated_code(spec)
+        assert result.syntax_ok is False
+        assert "bad syntax" in result.errors
+
+    def test_stops_on_safety_error(self, monkeypatch):
+        import geoforge.core.validator as validator_module
+        from geoforge.llm.base import GeometrySpec
+
+        spec = GeometrySpec(
+            component_type="via_array",
+            description="safety fail",
+            gdsfactory_code="import gdsfactory as gf",
+        )
+        monkeypatch.setattr(validator_module, "validate_syntax", lambda _code: (True, None))
+        monkeypatch.setattr(
+            validator_module, "validate_safety", lambda _code: (False, "Forbidden import")
+        )
+        monkeypatch.setattr(
+            validator_module,
+            "validate_execution",
+            lambda _code: (_ for _ in ()).throw(AssertionError("execution should not run")),
+        )
+
+        result = validator_module.validate_generated_code(spec)
+        assert result.safety_ok is False
+        assert result.errors == ["Forbidden import"]
+
+    def test_execution_success_with_missing_outputs_adds_warnings(self, monkeypatch):
+        import geoforge.core.validator as validator_module
+        from geoforge.llm.base import GeometrySpec
+
+        spec = GeometrySpec(
+            component_type="via_array",
+            description="warn on missing artifacts",
+            gdsfactory_code="print('ok')",
+        )
+        monkeypatch.setattr(validator_module, "validate_syntax", lambda _code: (True, None))
+        monkeypatch.setattr(validator_module, "validate_safety", lambda _code: (True, None))
+        monkeypatch.setattr(
+            validator_module,
+            "validate_execution",
+            lambda _code: (True, None, {"gds_files": [], "oas_files": []}),
+        )
+        monkeypatch.setattr(
+            validator_module,
+            "validate_spec_match",
+            lambda _spec, _code: validator_module.SpecMatchResult(
+                errors=[],
+                warnings=["parameter check warning"],
+            ),
+        )
+
+        result = validator_module.validate_generated_code(spec)
+        assert result.is_valid is True
+        assert result.spec_match_ok is True
+        assert "Code executed but no GDS file was created" in result.warnings
+        assert "Code executed but no OAS file was created" in result.warnings
+        assert "parameter check warning" in result.warnings
+
+    def test_execution_failure_and_spec_errors_mark_invalid(self, monkeypatch):
+        import geoforge.core.validator as validator_module
+        from geoforge.llm.base import GeometrySpec
+
+        spec = GeometrySpec(
+            component_type="via_array",
+            description="exec fail",
+            gdsfactory_code="raise RuntimeError('boom')",
+        )
+        monkeypatch.setattr(validator_module, "validate_syntax", lambda _code: (True, None))
+        monkeypatch.setattr(validator_module, "validate_safety", lambda _code: (True, None))
+        monkeypatch.setattr(
+            validator_module,
+            "validate_execution",
+            lambda _code: (False, "RuntimeError: boom", {"gds_files": [], "oas_files": []}),
+        )
+        monkeypatch.setattr(
+            validator_module,
+            "validate_spec_match",
+            lambda _spec, _code: validator_module.SpecMatchResult(
+                errors=["component mismatch"],
+                warnings=[],
+            ),
+        )
+
+        result = validator_module.validate_generated_code(spec)
+        assert result.is_valid is False
+        assert "RuntimeError: boom" in result.errors
+        assert "component mismatch" in result.errors
+        assert result.spec_match_ok is False
+
+
 class TestGenerateOutputName:
     """Tests for output name generation."""
 
@@ -477,6 +598,18 @@ x = 1
             assert result.py_path is not None
             assert result.py_path.exists()
             assert result.py_path.read_text() == code
+
+    def test_export_reports_runtime_errors_but_keeps_python_file(self):
+        """Export should return error details when generated code crashes."""
+        from geoforge.core.validator import export_code_and_files
+
+        code = "raise RuntimeError('export crash')"
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = export_code_and_files(code, Path(tmpdir), "broken_export")
+            assert result.success is False
+            assert result.py_path is not None and result.py_path.exists()
+            assert result.error is not None
+            assert "RuntimeError" in result.error
 
     @pytest.mark.slow
     def test_export_creates_gds_oas_files(self):

@@ -2,6 +2,7 @@ import gdsfactory as gf
 
 gf.gpdk.PDK.activate()
 
+
 @gf.cell
 def multi_layer_rectangles() -> gf.Component:
     """Multi-range rectangles with per-range sizing and placement."""
@@ -33,6 +34,7 @@ def multi_layer_rectangles() -> gf.Component:
         ref.dmove((0.0, 30000.0))
 
     return c
+
 
 if __name__ == "__main__":
     c = multi_layer_rectangles()

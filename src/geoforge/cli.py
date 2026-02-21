@@ -267,6 +267,24 @@ def generate(
             console.print()
         console.print()
 
+    if spec.primitives:
+        console.print("[bold]Primitive Geometry:[/bold]")
+        for primitive in spec.primitives:
+            detail = (
+                f"  {primitive.primitive_type} on ({primitive.layer_number}, {primitive.datatype})"
+            )
+            if primitive.primitive_type == "rectangle":
+                detail += f" size=({primitive.width}, {primitive.height})"
+            elif primitive.primitive_type == "circle":
+                detail += f" radius={primitive.radius}"
+            elif primitive.primitive_type == "polygon":
+                detail += f" points={len(primitive.points)}"
+            detail += f" center=({primitive.center_x}, {primitive.center_y})"
+            if primitive.rotation_deg:
+                detail += f" rot={primitive.rotation_deg}"
+            console.print(detail)
+        console.print()
+
     # Show generated code
     if show_code and spec.gdsfactory_code:
         console.print("[bold]Generated GDSFactory Code:[/bold]")

@@ -8,12 +8,18 @@ from anthropic import AsyncAnthropic
 from geoforge.config import settings
 from geoforge.llm.base import (
     GEOMETRY_SPEC_SCHEMA,
+    PROMPT_ENHANCEMENT_SCHEMA,
     GeometrySpec,
     LLMProvider,
     RetryContext,
+    _format_prompt_enhancement_retry_message,
     _format_retry_message,
 )
-from geoforge.prompts.gdsfactory import GEOMETRY_SPEC_PROMPT, build_code_prompt
+from geoforge.prompts.gdsfactory import (
+    GEOMETRY_SPEC_PROMPT,
+    PROMPT_ENHANCER_PROMPT,
+    build_code_prompt,
+)
 
 
 class AnthropicProvider(LLMProvider):
@@ -35,6 +41,44 @@ class AnthropicProvider(LLMProvider):
             raise ValueError("Anthropic API key not configured. Set ANTHROPIC_API_KEY in .env")
 
         self.client = AsyncAnthropic(api_key=self.api_key)
+
+    async def _enhance_prompt_impl(
+        self,
+        prompt: str,
+        retry_context: RetryContext | None = None,
+    ) -> dict:
+        """Rewrite raw user prompt into explicit geometry constraints."""
+        system_prompt = PROMPT_ENHANCER_PROMPT + PROMPT_ENHANCEMENT_SCHEMA
+        messages = [{"role": "user", "content": prompt}]
+
+        if retry_context:
+            if retry_context.previous_response_snippet:
+                messages.append(
+                    {"role": "assistant", "content": retry_context.previous_response_snippet}
+                )
+            messages.append(
+                {
+                    "role": "user",
+                    "content": _format_prompt_enhancement_retry_message(retry_context),
+                }
+            )
+
+        response = await self.client.messages.create(
+            model=self.model,
+            max_tokens=1024,
+            temperature=settings.llm_temperature,
+            system=system_prompt,
+            messages=cast("Any", messages),
+        )
+
+        content = None
+        if response.content:
+            first_block = cast("Any", response.content[0])
+            content = first_block.text if hasattr(first_block, "text") else None
+        if not content:
+            raise ValueError("Anthropic returned empty response for prompt enhancement")
+
+        return json.loads(content)
 
     async def _generate_geometry_spec_impl(
         self,
@@ -86,6 +130,7 @@ class AnthropicProvider(LLMProvider):
                 "parameters": spec.parameters,
                 "layers": [layer.model_dump() for layer in spec.layers],
                 "geometry_ranges": [r.model_dump() for r in spec.geometry_ranges],
+                "primitives": [p.model_dump() for p in spec.primitives],
             },
             original_prompt=original_prompt,
         )

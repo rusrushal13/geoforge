@@ -1,9 +1,10 @@
-import numpy as np
 import gdsfactory as gf
+import numpy as np
 
 gf.gpdk.PDK.activate()
 
 LAYER = (1, 0)
+
 
 @gf.cell
 def comb_serpentine() -> gf.Component:
@@ -22,7 +23,9 @@ def comb_serpentine() -> gf.Component:
 
     # Center pad
     pad = gf.components.rectangle(
-        size=(center_pad_size, center_pad_size), layer=LAYER, centered=True,
+        size=(center_pad_size, center_pad_size),
+        layer=LAYER,
+        centered=True,
     )
     pad_ref = c.add_ref(pad)
     pad_ref.dmove((0, pad_center_y))
@@ -30,7 +33,9 @@ def comb_serpentine() -> gf.Component:
     # Bottom rail
     rail_length = 2 * (max_finger_length + center_pad_size / 2 + 80.0)
     rail = gf.components.rectangle(
-        size=(rail_length, trace_width), layer=LAYER, centered=True,
+        size=(rail_length, trace_width),
+        layer=LAYER,
+        centered=True,
     )
     rail_ref = c.add_ref(rail)
     rail_ref.dmove((0, rail_y))
@@ -61,6 +66,7 @@ def comb_serpentine() -> gf.Component:
         left_ref.mirror_y()
 
     return c
+
 
 if __name__ == "__main__":
     c = comb_serpentine()
